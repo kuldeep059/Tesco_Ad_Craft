@@ -7,7 +7,7 @@ const { spawn } = require('child_process');
 
 const app = express();
 
-// Use the port provided by Render, or 5000 locally
+// Port configuration for Render or local development
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
@@ -20,7 +20,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 app.use('/uploads', express.static(uploadDir));
 
-// 2. Static folder for React frontend build
+// 2. Static folder for React frontend build (Vite dist)
 const clientBuildPath = path.join(__dirname, '../client/dist');
 app.use(express.static(clientBuildPath));
 
@@ -40,7 +40,6 @@ app.post('/upload', upload.single('image'), (req, res) => {
     const pythonScript = path.resolve(__dirname, '../ai_modules/bg_processor.py');
 
     console.log("--- Starting Background Removal ---");
-    // Using 'python3' for Linux-based Render environment
     const py = spawn('python3', [pythonScript, imagePath]);
 
     py.on('close', (code) => {
@@ -79,14 +78,14 @@ app.post('/generate', (req, res) => {
     });
 });
 
-// 3. THE CATCH-ALL: Fixed for path-to-regexp v0.1.x compatibility
+// 3. THE CATCH-ALL: Fixed for path-to-regexp 0.1.x+
 // This allows React Router to work correctly on a live URL
-app.get('/*', (req, res) => {
+app.get('/:splat*', (req, res) => {
     const indexPath = path.join(clientBuildPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
-        res.send("Server is running. Please build the frontend to see the UI.");
+        res.status(404).send("Frontend build not found. Ensure 'npm run build' completed successfully.");
     }
 });
 
