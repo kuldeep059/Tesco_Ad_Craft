@@ -4,8 +4,8 @@ FROM node:18
 # 2. Install Python and OpenCV dependencies
 RUN apt-get update && apt-get install -y python3 python3-pip libgl1-mesa-glx
 
-# 3. Install Python libraries
-RUN pip3 install opencv-python-headless numpy
+# 3. Install Python libraries (FIXED with the break-system-packages flag)
+RUN pip3 install opencv-python-headless numpy --break-system-packages
 
 # 4. Setup Server
 WORKDIR /app/server
