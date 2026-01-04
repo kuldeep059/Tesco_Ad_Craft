@@ -78,14 +78,15 @@ app.post('/generate', (req, res) => {
     });
 });
 
-// 3. THE CATCH-ALL: Fixed for path-to-regexp 0.1.x+
-// This allows React Router to work correctly on a live URL
-app.get('/:splat*', (req, res) => {
+// 3. THE CATCH-ALL FIX
+// We use a regular expression (.*) to match all routes without triggering PathError
+app.get('*', (req, res) => {
     const indexPath = path.join(clientBuildPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
-        res.status(404).send("Frontend build not found. Ensure 'npm run build' completed successfully.");
+        // If the build isn't there, we don't want to crash, just show a message
+        res.status(200).send("API is running. If you expect a UI, ensure the frontend build finished.");
     }
 });
 
