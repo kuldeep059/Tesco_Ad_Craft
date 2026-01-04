@@ -78,15 +78,16 @@ app.post('/generate', (req, res) => {
     });
 });
 
-// 3. THE CATCH-ALL FIX
-// We use a regular expression (.*) to match all routes without triggering PathError
+// 3. THE CATCH-ALL: Optimized for modern Express/Node 22
+// Using the string '*' is the safest way to handle SPA routing 
+// in current Express versions to avoid the PathError.
 app.get('*', (req, res) => {
     const indexPath = path.join(clientBuildPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
-        // If the build isn't there, we don't want to crash, just show a message
-        res.status(200).send("API is running. If you expect a UI, ensure the frontend build finished.");
+        // Fallback if the frontend build isn't found
+        res.status(200).send("API is running. UI build not found in /client/dist.");
     }
 });
 
