@@ -1,94 +1,91 @@
 const express = require('express');
-const cors = require('cors');
 const multer = require('multer');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const cors = require('cors');
 
 const app = express();
-
-// Port configuration for Render or local development
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// 1. CORS Configuration
+// This allows your Vercel frontend to make requests to this Render backend
+app.use(cors()); 
 app.use(express.json());
 
-// 1. Static folder for uploaded images
+// 2. Ensure Uploads Directory exists
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
+    fs.mkdirSync(uploadDir, { recursive: true });
 }
-app.use('/uploads', express.static(uploadDir));
 
-// 2. Static folder for React frontend build (Vite dist)
-const clientBuildPath = path.join(__dirname, '../client/dist');
-app.use(express.static(clientBuildPath));
-
+// 3. Configure Multer for file uploads
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
-    filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
-});
-const upload = multer({ storage: storage });
-
-// ROUTE 1: UPLOAD & REMOVE BACKGROUND
-app.post('/upload', upload.single('image'), (req, res) => {
-    if (!req.file) return res.status(400).send({ error: 'No file uploaded.' });
-
-    const imagePath = path.resolve(req.file.path);
-    const parsed = path.parse(imagePath);
-    const processedPath = path.join(parsed.dir, parsed.name + "_no_bg.png");
-    const pythonScript = path.resolve(__dirname, '../ai_modules/bg_processor.py');
-
-    console.log("--- Starting Background Removal ---");
-    const py = spawn('python3', [pythonScript, imagePath]);
-
-    py.on('close', (code) => {
-        if (code === 0 && fs.existsSync(processedPath)) {
-            const fileName = path.basename(processedPath);
-            res.send({ processedPath: `/uploads/${fileName}` });
-        } else {
-            console.error(`--- AI Script Failed with code: ${code} ---`);
-            res.status(500).send({ error: "Background removal failed." });
-        }
-    });
-});
-
-// ROUTE 2: GENERATE AD SCENE
-app.post('/generate', (req, res) => {
-    const { imageUrl, prompt } = req.body;
-    if (!imageUrl) return res.status(400).send({ error: "Missing image URL." });
-
-    const fileName = path.basename(imageUrl.split('?')[0]);
-    const localImagePath = path.resolve(__dirname, 'uploads', fileName);
-    
-    const finalAdPath = localImagePath.replace("_no_bg.png", "_final_ad.png");
-    const pythonScript = path.resolve(__dirname, '../ai_modules/ad_generator.py');
-
-    console.log("--- Generating Ad Layout ---");
-    const py = spawn('python3', [pythonScript, localImagePath, prompt || "studio"]);
-
-    py.on('close', (code) => {
-        if (code === 0 && fs.existsSync(finalAdPath)) {
-            const finalFileName = path.basename(finalAdPath);
-            res.send({ adUrl: `/uploads/${finalFileName}` });
-        } else {
-            console.error(`--- Ad Generator Failed with code: ${code} ---`);
-            res.status(500).send({ error: "Ad generation failed." });
-        }
-    });
-});
-
-// 3. THE CATCH-ALL: Optimized for modern Express/Node 22
-// Using the string '*' is the safest way to handle SPA routing 
-// in current Express versions to avoid the PathError.
-app.get('*', (req, res) => {
-    const indexPath = path.join(clientBuildPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-    } else {
-        // Fallback if the frontend build isn't found
-        res.status(200).send("API is running. UI build not found in /client/dist.");
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + '-' + file.originalname);
     }
 });
+const upload = multer({ storage });
 
-app.listen(PORT, () => console.log(`AdCraft Server running on port ${PORT}`));
+// 4. API Endpoints
+// Simple health check for Render
+app.get('/', (req, res) => {
+    res.send('AdCraft AI Backend is running...');
+});
+
+// Serve the processed images so the frontend can display them
+app.use('/uploads', express.static(uploadDir));
+
+// Background Removal Endpoint
+app.post('/api/remove-bg', upload.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No image uploaded' });
+    }
+
+    const inputPath = req.file.path;
+    // Path to your python script in the ai_modules folder
+    const scriptPath = path.join(__dirname, '../ai_modules/bg_processor.py');
+
+    // Call Python script
+    const pythonProcess = spawn('python3', [scriptPath, inputPath]);
+
+    let outputData = "";
+    let errorData = "";
+
+    pythonProcess.stdout.on('data', (data) => {
+        outputData += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+        errorData += data.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+        if (code !== 0) {
+            console.error(`Python Error: ${errorData}`);
+            return res.status(500).json({ error: 'AI Processing failed', details: errorData });
+        }
+
+        // The python script prints "SUCCESS: path/to/image_no_bg.png"
+        if (outputData.includes("SUCCESS:")) {
+            const resultPath = outputData.split("SUCCESS:")[1].trim();
+            const fileName = path.basename(resultPath);
+            
+            // Return the URL to the new image
+            res.json({ 
+                success: true, 
+                imageUrl: `${req.protocol}://${req.get('host')}/uploads/${fileName}` 
+            });
+        } else {
+            res.status(500).json({ error: 'Unexpected Python output', raw: outputData });
+        }
+    });
+});
+
+// 5. Start Server
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+});
