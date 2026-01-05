@@ -7,11 +7,10 @@ function App() {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // --- DEPLOYMENT CONFIG ---
-  // If we are on localhost, use the 5000 port. Otherwise, use the live URL.
-  const API_BASE = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5000' 
-    : window.location.origin;
+  // --- UPDATED DEPLOYMENT CONFIG ---
+  // Vite uses import.meta.env to access variables. 
+  // We use VITE_API_URL if it exists (on Vercel), otherwise fallback to localhost for dev.
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   const handleReset = () => {
     setPreviewUrl(null);
@@ -35,23 +34,26 @@ function App() {
     const file = e.target.files[0];
     if (!file) return;
     setIsProcessing(true);
+    
     const formData = new FormData();
     formData.append('image', file);
+    
     try {
-      const response = await fetch(`${API_BASE}/upload`, {
+      // Endpoint changed to /api/remove-bg to match the updated index.js
+      const response = await fetch(`${API_BASE}/api/remove-bg`, {
         method: 'POST',
         body: formData,
       });
+      
       const data = await response.json();
-      if (data.processedPath) {
-        // Ensure the path is absolute for the <img> tag
-        const absolutePath = data.processedPath.startsWith('http') 
-          ? data.processedPath 
-          : `${API_BASE}${data.processedPath}`;
-        setPreviewUrl(`${absolutePath}?t=${Date.now()}`);
+      
+      if (data.success && data.imageUrl) {
+        // Render returns the full URL now, so we add the cache-buster timestamp
+        setPreviewUrl(`${data.imageUrl}?t=${Date.now()}`);
       }
     } catch (err) {
-      alert("Error: AI background removal failed.");
+      console.error(err);
+      alert("Error: AI background removal failed. Check if Render server is awake.");
     } finally {
       setIsProcessing(false);
     }
@@ -62,7 +64,9 @@ function App() {
     setIsGenerating(true);
     try {
       const cleanUrl = previewUrl.split('?')[0]; 
-      const response = await fetch(`${API_BASE}/generate`, {
+      // Note: If you haven't split the /generate endpoint yet, 
+      // make sure your Render backend has an app.post('/api/generate')
+      const response = await fetch(`${API_BASE}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -72,10 +76,7 @@ function App() {
       });
       const data = await response.json();
       if (data.adUrl) {
-        const absoluteAdUrl = data.adUrl.startsWith('http') 
-          ? data.adUrl 
-          : `${API_BASE}${data.adUrl}`;
-        const newAd = `${absoluteAdUrl}?t=${Date.now()}`;
+        const newAd = `${data.adUrl}?t=${Date.now()}`;
         setPreviewUrl(newAd);
         setHistory(prev => [newAd, ...prev]); 
       }
@@ -99,7 +100,7 @@ function App() {
               Reset
             </button>
           )}
-          {previewUrl?.includes('final_ad') && (
+          {previewUrl?.includes('processed') && (
             <a href={previewUrl.split('?')[0]} download className="bg-[#2563eb] text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700">
               Download Result
             </a>
